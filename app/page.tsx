@@ -59,6 +59,9 @@ export default function Home() {
   const msgId = useRef(0)
   const requestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const disconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const DISCONNECT_GRACE_MS = 5_000
+
   function showNotice(text: string) {
     setNotice(text)
     window.setTimeout(() => setNotice(null), 3500)
@@ -70,6 +73,8 @@ export default function Home() {
 
   function teardown(message?: string) {
     if (requestTimer.current) clearTimeout(requestTimer.current)
+    if (disconnectTimer.current) clearTimeout(disconnectTimer.current)
+    disconnectTimer.current = null
     peerRef.current?.close()
     peerRef.current = null
     setLocalStream(null)
@@ -89,8 +94,25 @@ export default function Home() {
       onControl: (ctrl) => handleControl(ctrl),
       onRemoteStream: (stream) => setRemoteStream(stream),
       onConnectionState: (state) => {
+        if (state === "connected") {
+          if (disconnectTimer.current) {
+            clearTimeout(disconnectTimer.current)
+            disconnectTimer.current = null
+          }
+          return
+        }
         if (state === "failed") {
+          void sendSignal(peerId, "end")
           teardown("Connection failed (network).")
+          return
+        }
+        if (state === "disconnected") {
+          if (disconnectTimer.current) return
+          disconnectTimer.current = setTimeout(() => {
+            disconnectTimer.current = null
+            void sendSignal(peerId, "end")
+            teardown("Stranger disconnected.")
+          }, DISCONNECT_GRACE_MS)
         }
       },
       onChannelOpen: () => {

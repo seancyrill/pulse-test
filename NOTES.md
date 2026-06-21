@@ -6,6 +6,7 @@
 - signal route not updating when chat ends, never checks when signal type === "end". fixed by adding it beside type === "decline"
 - video call broken layoout, endvideo button being burried at the bottom, especially bad at landscape view. just fixed some styling issues
 - handleSignal flushing pending candidates BEFORE setting remote description, causing chat connections fail. fixed by reversing the sequence
+- When user A abandons chat/video (closing tab/browser), user B doesnt detect, it just sits there with the "Connected" message. Fixed by running a teardown() to end chat and video. Then send an end signal onConnectionState === failed || disconnected to enable them from taking chat/video after.
 
 ## Phase 2: Embellish
 
@@ -26,13 +27,13 @@
 
 ## Phase 4: Improvements
 
-- Some empty catch blocks are better not siliently swallowed
+- Some empty catch blocks are better not silently swallowed
   - Failing the poll tick: Added some notice for the user to let the know when disconnect and reconnect
   - HandleSignal json parsing: added trycatch block to guard the parse
 
 ### plans
 
-- closing site during chat or video call, cleanup doesnt include video call and chat. I have to add code, to be fixed on improvement phase
+- request timeout doesnt inform the recipient
 - bigger button for dots. is smol
 - make the poll clean up more efficient, running everytime anyone updates active status
 - users can just spam call one guy even if they kept declining

@@ -3,6 +3,7 @@ export type PeerControl =
   | "video-request"
   | "video-accept"
   | "video-decline"
+  | "video-cancel"
   | "video-end"
 
 interface PeerCallbacks {
