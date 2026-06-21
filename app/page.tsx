@@ -28,6 +28,12 @@ export default function Home() {
   const [peers, setPeers] = useState<PeerDot[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [notice, setNotice] = useState<string | null>(null)
+  const [connectionTrouble, _setConnectionTrouble] = useState(false)
+  const connectionTroubleRef = useRef(connectionTrouble)
+  const setConnectionTrouble = (v: boolean) => {
+    connectionTroubleRef.current = v
+    _setConnectionTrouble(v)
+  }
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
   const [myLocation, setMyLocation] = useState<{
@@ -275,14 +281,30 @@ export default function Home() {
     if (phase !== "live" || !sessionId) return
     let active = true
     let timer: ReturnType<typeof setTimeout> | undefined
+    let consecutiveFailures = 0
+
+    const FAILURE_NOTICE_THRESHOLD = 3
 
     const tick = async () => {
       try {
         const data = await poll()
         if (!active) return
+        consecutiveFailures = 0
+        if (connectionTroubleRef.current) {
+          setConnectionTrouble(false)
+          showNotice("Back online")
+        }
         setPeers(data.peers)
         for (const s of data.signals) processSignalRef.current(s)
-      } catch {}
+      } catch (err) {
+        if (!active) return
+        // any failure to reach our own backend (network blip, server error, expired, session) would inform the user.
+        consecutiveFailures += 1
+
+        if (consecutiveFailures >= FAILURE_NOTICE_THRESHOLD) {
+          setConnectionTrouble(true)
+        }
+      }
       if (active) timer = setTimeout(tick, POLL_INTERVAL_MS)
     }
     tick()
@@ -325,6 +347,12 @@ export default function Home() {
         onPeerClick={requestConnection}
         canConnect={conn.kind === "idle"}
       />
+
+      {connectionTrouble && (
+        <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
+          Connection trouble — retrying…
+        </div>
+      )}
 
       {notice && (
         <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">

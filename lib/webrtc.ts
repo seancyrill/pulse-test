@@ -87,15 +87,27 @@ export class PeerSession {
 
   async handleSignal(type: DescType, payload: string) {
     if (this.closed) return
-    const data = JSON.parse(payload)
+
+    let data: RTCIceCandidateInit | RTCSessionDescriptionInit
+    try {
+      data = JSON.parse(payload) as
+        | RTCIceCandidateInit
+        | RTCSessionDescriptionInit
+    } catch {
+      console.error("[webrtc] received malformed signal payload, ignoring", {
+        type,
+      })
+      return
+    }
 
     if (type === "ice") {
+      const candidate = data as RTCIceCandidateInit
       if (!this.pc.remoteDescription) {
-        this.pendingCandidates.push(data)
+        this.pendingCandidates.push(candidate)
         return
       }
       try {
-        await this.pc.addIceCandidate(data)
+        await this.pc.addIceCandidate(candidate)
       } catch (err) {
         console.error("[webrtc] addIceCandidate FAILED:", err)
       }

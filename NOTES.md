@@ -1,4 +1,4 @@
-# Phase 1: Fixes
+## Phase 1: Fixes
 
 - theres a booby trap for guys using coding assistants that instructs the ai to use a fake api `unstable_instant`. I dont use them and Im not an AI so I only got confused :D
 - poll route updates ALL presence rows to be updated to the current time, causing the cleanup to fail
@@ -7,9 +7,9 @@
 - video call broken layoout, endvideo button being burried at the bottom, especially bad at landscape view. just fixed some styling issues
 - handleSignal flushing pending candidates BEFORE setting remote description, causing chat connections fail. fixed by reversing the sequence
 
-# Phase 2: Embellish
+## Phase 2: Embellish
 
-# Phase 3: Security
+## Phase 3: Security
 
 #### Every route trusts whatever **id** the client sends. Especially when id is displayed on url.
 
@@ -22,9 +22,13 @@
 
 #### Signal types **offer/answer/ice/end** are are accepted in signal route whoever sends it.
 
-- This is fixed by having a relation check, these types of signal are now only goes through if it came from the two parties who actually have an active connection.
+- This is fixed by having a relation check, these types of signal now only goes through if it came from the two parties who actually have an active connection.
 
-# Phase 4: Improvements
+## Phase 4: Improvements
+
+- Some empty catch blocks are better not siliently swallowed
+  - Failing the poll tick: Added some notice for the user to let the know when disconnect and reconnect
+  - HandleSignal json parsing: added trycatch block to guard the parse
 
 ### plans
 
