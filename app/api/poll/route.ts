@@ -1,3 +1,4 @@
+import { requireAuth } from "@/lib/auth"
 import { SIGNAL_TTL_MS, STALE_MS } from "@/lib/presence"
 import { prisma } from "@/lib/prisma"
 import type { PollResponse } from "@/lib/types"
@@ -6,15 +7,13 @@ import type { NextRequest } from "next/server"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// GET /api/poll?id= — the single endpoint that drives the live map.
+// GET /api/poll — the single endpoint that drives the live map.
 // It (1) heartbeats the caller, (2) reaps stale presence + orphan signals,
 // (3) returns the filtered online peers, and (4) drains this user's mailbox.
 export async function GET(request: NextRequest) {
-  const params = request.nextUrl.searchParams
-  const id = params.get("id")
-
+  const id = requireAuth(request)
   if (!id) {
-    return Response.json({ error: "missing id" }, { status: 400 })
+    return Response.json({ error: "unauthorized" }, { status: 401 })
   }
 
   const now = Date.now()
@@ -22,10 +21,17 @@ export async function GET(request: NextRequest) {
   const signalCutoff = new Date(now - SIGNAL_TTL_MS)
 
   // 1) Heartbeat — refresh lastSeen for the caller.
-  await prisma.presence.update({
-    where: { id: id },
-    data: { lastSeen: new Date(now) },
-  })
+  // If the row doesn't exist (e.g. server restarted / presence was reaped
+  // out from under a still-open tab), don't 500 — tell the client to
+  // rejoin instead of leaking a Prisma error.
+  try {
+    await prisma.presence.update({
+      where: { id },
+      data: { lastSeen: new Date(now) },
+    })
+  } catch {
+    return Response.json({ error: "session expired" }, { status: 410 })
+  }
 
   // 2) Reap stale presence rows and orphaned signals (independent deletes —
   // no atomicity needed, and avoids transactions over a PgBouncer pooler).

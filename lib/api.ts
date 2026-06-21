@@ -1,50 +1,67 @@
 // Client-side helpers for talking to the coordination API.
-import type { PollResponse, SignalType } from "@/lib/types";
+import type { PollResponse, SignalType } from "@/lib/types"
 
-export async function join(
-  id: string,
-  lat: number,
-  lng: number,
-): Promise<void> {
-  await fetch("/api/join", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, lat, lng }),
-  });
+// The session token lives in memory only (module-level var, cleared on
+// refresh — a refreshed tab is a new anonymous session, consistent with
+// the rest of the app's model). It's set once join() resolves and read by
+// every other call below. Never persisted to localStorage/sessionStorage.
+let sessionToken: string | null = null
+
+function authHeader(): HeadersInit {
+  if (!sessionToken) throw new Error("not joined yet")
+  return { Authorization: `Bearer ${sessionToken}` }
 }
 
-export async function poll(id: string): Promise<PollResponse> {
-  const res = await fetch(`/api/poll?id=${encodeURIComponent(id)}`, {
+export async function join(lat: number, lng: number): Promise<string> {
+  const res = await fetch("/api/join", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lat, lng }),
+  })
+  if (!res.ok) throw new Error(`join failed: ${res.status}`)
+  const data = await res.json()
+  sessionToken = data.token
+  return data.id as string
+}
+
+export async function poll(): Promise<PollResponse> {
+  const res = await fetch("/api/poll", {
     cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`poll failed: ${res.status}`);
-  return res.json();
+    headers: authHeader(),
+  })
+  if (!res.ok) throw new Error(`poll failed: ${res.status}`)
+  return res.json()
 }
 
 export async function sendSignal(
-  fromId: string,
   toId: string,
   type: SignalType,
   payload?: string,
 ): Promise<void> {
   await fetch("/api/signal", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fromId, toId, type, payload }),
-  });
+    headers: { "Content-Type": "application/json", ...authHeader() },
+    body: JSON.stringify({ toId, type, payload }),
+  })
 }
 
 // Fire-and-forget leave that survives the tab closing.
-export function leave(id: string): void {
-  const body = JSON.stringify({ id });
+//
+// sendBeacon can't set custom headers, so the token rides in the body here
+// instead of as a bearer header — same as the fetch+keepalive fallback.
+// Verified identically server-side regardless of which path it took.
+export function leave(): void {
+  if (!sessionToken) return
+  const body = JSON.stringify({ token: sessionToken })
   if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-    navigator.sendBeacon("/api/leave", body);
+    navigator.sendBeacon("/api/leave", body)
   } else {
     void fetch("/api/leave", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
       keepalive: true,
-    });
+    })
   }
+  sessionToken = null
 }

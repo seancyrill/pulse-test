@@ -7,12 +7,28 @@
 - video call broken layoout, endvideo button being burried at the bottom, especially bad at landscape view. just fixed some styling issues
 - handleSignal flushing pending candidates BEFORE setting remote description, causing chat connections fail. fixed by reversing the sequence
 
-to fix
+# Phase 2: Embellish
+
+# Phase 3: Security
+
+#### Every route trusts whatever **id** the client sends. Especially when id is displayed on url.
+
+- This can be abused by:
+  - **/api/signal** : anyone can send signals as that peer. accept connections, send **end** to kick someone, fake **offer/answer/ice** payloads into an active session
+  - **/api/poll** : anyone can get the pending signals. can even steal the offer or answer it themselves.
+  - **/api/leave** : anyone can boot any known id offline
+  - **/api/join** : anyone can overwrite another ids location or presense
+- These are fixed by replacing id with a server issued token, which is stored in memory, to verify identity.
+
+#### Signal types **offer/answer/ice/end** are are accepted in signal route whoever sends it.
+
+- This is fixed by having a relation check, these types of signal are now only goes through if it came from the two parties who actually have an active connection.
+
+# Phase 4: Improvements
+
+### plans
 
 - closing site during chat or video call, cleanup doesnt include video call and chat. I have to add code, to be fixed on improvement phase
-
-to do
-
 - bigger button for dots. is smol
 - make the poll clean up more efficient, running everytime anyone updates active status
 - users can just spam call one guy even if they kept declining
@@ -29,9 +45,3 @@ to do
 - should be able to bring out chat during video call
 - should clicking other dots during chat ask the user to leave chat and ask other stranger?
 - location error message improvement, maybe try saying their location/gps is off
-
-# Phase 2: Embellish
-
-# Phase 3: Security
-
-# Phase 4: Improvements

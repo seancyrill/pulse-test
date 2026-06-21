@@ -1,3 +1,4 @@
+import { requireAuth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import type { SignalType } from "@/lib/types"
 import type { NextRequest } from "next/server"
@@ -17,10 +18,15 @@ const VALID_TYPES: SignalType[] = [
 
 const MAX_PAYLOAD = 64 * 1024 // SDP/ICE are small; cap to be safe.
 
-// POST /api/signal — body { fromId, toId, type, payload? }
+// POST /api/signal — body { toId, type, payload? }
 // Drops one message into the recipient's mailbox. Also manages the `busy`
 // flag so a user can only be in one connection at a time.
 export async function POST(request: NextRequest) {
+  const fromId = requireAuth(request)
+  if (!fromId) {
+    return Response.json({ error: "unauthorized" }, { status: 401 })
+  }
+
   let body: unknown
   try {
     body = await request.json()
@@ -28,13 +34,15 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "invalid body" }, { status: 400 })
   }
 
-  const { fromId, toId, type, payload } = (body ?? {}) as Record<
-    string,
-    unknown
-  >
+  const { toId, type, payload } = (body ?? {}) as Record<string, unknown>
 
-  if (typeof fromId !== "string" || typeof toId !== "string") {
-    return Response.json({ error: "invalid ids" }, { status: 400 })
+  if (typeof toId !== "string" || toId.length === 0) {
+    return Response.json({ error: "invalid toId" }, { status: 400 })
+  }
+  if (toId === fromId) {
+    // Not a real attack on its own, but nonsensical and worth rejecting
+    // outright rather than letting it create weird self-referential state.
+    return Response.json({ error: "cannot signal self" }, { status: 400 })
   }
   if (typeof type !== "string" || !VALID_TYPES.includes(type as SignalType)) {
     return Response.json({ error: "invalid type" }, { status: 400 })
@@ -49,6 +57,33 @@ export async function POST(request: NextRequest) {
 
   const signalType = type as SignalType
   const payloadStr = typeof payload === "string" ? payload : null
+
+  // offer/answer/ice/end should only ever flow between two parties who actually have an active connection
+  if (
+    signalType !== "request" &&
+    signalType !== "accept" &&
+    signalType !== "decline"
+  ) {
+    const related = await prisma.signal.findFirst({
+      where: {
+        OR: [
+          { fromId, toId },
+          { fromId: toId, toId: fromId },
+        ],
+      },
+      select: { id: true },
+    })
+    const eitherBusy = await prisma.presence.findFirst({
+      where: { id: { in: [fromId, toId] }, busy: true },
+      select: { id: true },
+    })
+    if (!related && !eitherBusy) {
+      return Response.json(
+        { error: "no active session with target" },
+        { status: 403 },
+      )
+    }
+  }
 
   // Enforce "one active connection at a time": if the target is already busy,
   // auto-decline the request instead of delivering it.

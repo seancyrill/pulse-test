@@ -24,7 +24,7 @@ const REQUEST_TIMEOUT_MS = 30_000
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate")
-  const [sessionId] = useState(() => crypto.randomUUID())
+  const [sessionId, setSessionId] = useState<string | null>(null)
   const [peers, setPeers] = useState<PeerDot[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [notice, setNotice] = useState<string | null>(null)
@@ -77,7 +77,7 @@ export default function Home() {
   function startPeer(peerId: string, initiator: boolean) {
     const ps = new PeerSession(initiator, {
       onSignal: (type: DescType, payload: string) => {
-        void sendSignal(sessionId, peerId, type, payload)
+        void sendSignal(peerId, type, payload)
       },
       onChat: (text) => addMessage(false, text),
       onControl: (ctrl) => handleControl(ctrl),
@@ -132,13 +132,13 @@ export default function Home() {
   function requestConnection(peerId: string) {
     if (connRef.current.kind !== "idle") return
     setConn({ kind: "requesting", peerId })
-    void sendSignal(sessionId, peerId, "request")
+    void sendSignal(peerId, "request")
     requestTimer.current = setTimeout(() => {
       if (
         connRef.current.kind === "requesting" &&
         connRef.current.peerId === peerId
       ) {
-        void sendSignal(sessionId, peerId, "end")
+        void sendSignal(peerId, "end")
         teardown("No answer.")
       }
     }, REQUEST_TIMEOUT_MS)
@@ -146,7 +146,7 @@ export default function Home() {
 
   function cancelRequest() {
     if (connRef.current.kind === "requesting") {
-      void sendSignal(sessionId, connRef.current.peerId, "end")
+      void sendSignal(connRef.current.peerId, "end")
     }
     teardown()
   }
@@ -155,20 +155,20 @@ export default function Home() {
     if (connRef.current.kind !== "incoming") return
     const peerId = connRef.current.peerId
     startPeer(peerId, false)
-    void sendSignal(sessionId, peerId, "accept")
+    void sendSignal(peerId, "accept")
     setConn({ kind: "connecting", peerId })
   }
 
   function declineIncoming() {
     if (connRef.current.kind !== "incoming") return
-    void sendSignal(sessionId, connRef.current.peerId, "decline")
+    void sendSignal(connRef.current.peerId, "decline")
     setConn({ kind: "idle" })
   }
 
   function endConnection() {
     const c = connRef.current
     if (c.kind === "connecting" || c.kind === "connected") {
-      void sendSignal(sessionId, c.peerId, "end")
+      void sendSignal(c.peerId, "end")
     }
     teardown()
   }
@@ -215,7 +215,7 @@ export default function Home() {
         if (connRef.current.kind === "idle") {
           setConn({ kind: "incoming", peerId: sig.fromId })
         } else {
-          void sendSignal(sessionId, sig.fromId, "decline")
+          void sendSignal(sig.fromId, "decline")
         }
         break
       }
@@ -242,14 +242,6 @@ export default function Home() {
         const c = connRef.current
         const peerId =
           c.kind === "connecting" || c.kind === "connected" ? c.peerId : null
-        console.log(
-          "[page] got signal",
-          sig.type,
-          "connState=",
-          c.kind,
-          "match=",
-          peerId === sig.fromId,
-        )
         if (peerRef.current && peerId === sig.fromId) {
           void peerRef.current.handleSignal(
             sig.type as DescType,
@@ -286,7 +278,7 @@ export default function Home() {
 
     const tick = async () => {
       try {
-        const data = await poll(sessionId)
+        const data = await poll()
         if (!active) return
         setPeers(data.peers)
         for (const s of data.signals) processSignalRef.current(s)
@@ -303,7 +295,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!sessionId || phase !== "live") return
-    const onLeave = () => leave(sessionId)
+    const onLeave = () => leave()
     window.addEventListener("pagehide", onLeave)
     window.addEventListener("beforeunload", onLeave)
     return () => {
@@ -314,7 +306,8 @@ export default function Home() {
 
   async function handleReady(lat: number, lng: number) {
     setMyLocation({ lat, lng })
-    await join(sessionId, lat, lng)
+    const id = await join(lat, lng)
+    setSessionId(id)
     setPhase("live")
   }
 
@@ -323,7 +316,6 @@ export default function Home() {
   }
 
   const inChat = conn.kind === "connecting" || conn.kind === "connected"
-  console.log({ inChat })
 
   return (
     <main className="fixed inset-0 overflow-hidden">
