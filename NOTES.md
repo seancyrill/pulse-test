@@ -5,6 +5,7 @@
 - sneaky WorldMap env using, having an (??) random string value. making it proceed with an invalid token
 - signal route not updating when chat ends, never checks when signal type === "end". fixed by adding it beside type === "decline"
 - video call broken layoout, endvideo button being burried at the bottom, especially bad at landscape view. just fixed some styling issues
+- handleSignal flushing pending candidates BEFORE setting remote description, causing chat connections fail. fixed by reversing the sequence
 
 to fix
 
