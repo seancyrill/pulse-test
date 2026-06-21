@@ -62,6 +62,12 @@ export default function Home() {
   const disconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const DISCONNECT_GRACE_MS = 5_000
 
+  const connectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const CONNECT_TIMEOUT_MS = 20_000
+
+  const videoRequestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const VIDEO_REQUEST_TIMEOUT_MS = 20_000
+
   function showNotice(text: string) {
     setNotice(text)
     window.setTimeout(() => setNotice(null), 3500)
@@ -75,6 +81,10 @@ export default function Home() {
     if (requestTimer.current) clearTimeout(requestTimer.current)
     if (disconnectTimer.current) clearTimeout(disconnectTimer.current)
     disconnectTimer.current = null
+    if (connectTimer.current) clearTimeout(connectTimer.current)
+    connectTimer.current = null
+    if (videoRequestTimer.current) clearTimeout(videoRequestTimer.current)
+    videoRequestTimer.current = null
     peerRef.current?.close()
     peerRef.current = null
     setLocalStream(null)
@@ -107,7 +117,7 @@ export default function Home() {
           return
         }
         if (state === "disconnected") {
-          if (disconnectTimer.current) return
+          if (disconnectTimer.current) return // already waiting
           disconnectTimer.current = setTimeout(() => {
             disconnectTimer.current = null
             void sendSignal(peerId, "end")
@@ -116,6 +126,10 @@ export default function Home() {
         }
       },
       onChannelOpen: () => {
+        if (connectTimer.current) {
+          clearTimeout(connectTimer.current)
+          connectTimer.current = null
+        }
         setConn({ kind: "connected", peerId })
       },
     })
@@ -129,13 +143,25 @@ export default function Home() {
         if (videoRef.current === "none") setVideo("incoming")
         break
       case "video-accept":
+        if (videoRequestTimer.current) {
+          clearTimeout(videoRequestTimer.current)
+          videoRequestTimer.current = null
+        }
         if (videoRef.current === "requesting" && ps) {
           ps.startVideo()
             .then((stream) => {
+              // Same reasoning as acceptVideo: getUserMedia can hang on
+              // an unanswered permission prompt. Re-check state before
+              // acting, in case the call ended while we were waiting.
+              if (videoRef.current !== "requesting") {
+                for (const track of stream.getTracks()) track.stop()
+                return
+              }
               setLocalStream(stream)
               setVideo("active")
             })
             .catch(() => {
+              if (videoRef.current !== "requesting") return
               setVideo("none")
               ps.sendControl("video-end")
               showNotice("Camera unavailable.")
@@ -143,9 +169,21 @@ export default function Home() {
         }
         break
       case "video-decline":
+        if (videoRequestTimer.current) {
+          clearTimeout(videoRequestTimer.current)
+          videoRequestTimer.current = null
+        }
         if (videoRef.current === "requesting") {
           setVideo("none")
           showNotice("Video declined.")
+        }
+        break
+      case "video-cancel":
+        // The other side's video request timed out — they gave up
+        // waiting. We're the one on the "incoming" prompt; clear it.
+        if (videoRef.current === "incoming") {
+          setVideo("none")
+          showNotice("Video request expired.")
         }
         break
       case "video-end":
@@ -185,6 +223,11 @@ export default function Home() {
     startPeer(peerId, false)
     void sendSignal(peerId, "accept")
     setConn({ kind: "connecting", peerId })
+    connectTimer.current = setTimeout(() => {
+      connectTimer.current = null
+      void sendSignal(peerId, "end")
+      teardown("Couldn't establish connection (network).")
+    }, CONNECT_TIMEOUT_MS)
   }
 
   function declineIncoming() {
@@ -205,6 +248,12 @@ export default function Home() {
     if (videoRef.current !== "none" || !peerRef.current) return
     setVideo("requesting")
     peerRef.current.sendControl("video-request")
+    videoRequestTimer.current = setTimeout(() => {
+      videoRequestTimer.current = null
+      peerRef.current?.sendControl("video-cancel")
+      setVideo("none")
+      showNotice("No response.")
+    }, VIDEO_REQUEST_TIMEOUT_MS)
   }
 
   function acceptVideo() {
@@ -212,11 +261,16 @@ export default function Home() {
     if (!ps) return
     ps.startVideo()
       .then((stream) => {
+        if (videoRef.current !== "incoming") {
+          for (const track of stream.getTracks()) track.stop()
+          return
+        }
         setLocalStream(stream)
         ps.sendControl("video-accept")
         setVideo("active")
       })
       .catch(() => {
+        if (videoRef.current !== "incoming") return
         ps.sendControl("video-decline")
         setVideo("none")
         showNotice("Camera unavailable.")
@@ -253,6 +307,11 @@ export default function Home() {
           if (requestTimer.current) clearTimeout(requestTimer.current)
           startPeer(sig.fromId, true)
           setConn({ kind: "connecting", peerId: sig.fromId })
+          connectTimer.current = setTimeout(() => {
+            connectTimer.current = null
+            void sendSignal(sig.fromId, "end")
+            teardown("Couldn't establish connection (network).")
+          }, CONNECT_TIMEOUT_MS)
         }
         break
       }

@@ -7,6 +7,7 @@
 - video call broken layoout, endvideo button being burried at the bottom, especially bad at landscape view. just fixed some styling issues
 - handleSignal flushing pending candidates BEFORE setting remote description, causing chat connections fail. fixed by reversing the sequence
 - When user A abandons chat/video (closing tab/browser), user B doesnt detect, it just sits there with the "Connected" message. Fixed by running a teardown() to end chat and video. Then send an end signal onConnectionState === failed || disconnected to enable them from taking chat/video after.
+- Video request cancel doesnt inform user B, when user A cancels or timeouts, then B accepts. Thus B going into chat with no one. Fixes by adding a new option for handle PeerControl - video-cancel - tells user B that user A cancelled.
 
 ## Phase 2: Embellish
 
@@ -30,10 +31,14 @@
 - Some empty catch blocks are better not silently swallowed
   - Failing the poll tick: Added some notice for the user to let the know when disconnect and reconnect
   - HandleSignal json parsing: added trycatch block to guard the parse
+- Added a bunch of new timeouts:
+  - connect: after user B accepts the invite from user A, this timer limits it to prevent both user staring at "Connecting..." forever.
+  - disconnection: when the chat/video disconnects for a certain amount of time, prevents killing a call on network blips.
+  - video request: when A request for a video call, then B never chooses any option, A waits forever.
+  - getUserMedia: not a timeout but it guards against asking for camera permission when video request is stale.
 
 ### plans
 
-- request timeout doesnt inform the recipient
 - bigger button for dots. is smol
 - make the poll clean up more efficient, running everytime anyone updates active status
 - users can just spam call one guy even if they kept declining
