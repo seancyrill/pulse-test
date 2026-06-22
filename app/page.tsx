@@ -4,12 +4,21 @@ import { join, leave, poll, sendSignal } from "@/lib/api"
 import { POLL_INTERVAL_MS } from "@/lib/presence"
 import { type PeerDot, type SignalMsg } from "@/lib/types"
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc"
+import dynamic from "next/dynamic"
 import { useEffect, useRef, useState } from "react"
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel"
 import ConnectionPrompt from "./components/ConnectionPrompt"
-import EntryGate from "./components/EntryGate"
 import VideoPanel from "./components/VideoPanel"
 import WorldMap from "./components/WorldMap"
+
+const EntryGate = dynamic(() => import("./components/EntryGate"), {
+  ssr: false, // This forces the component to only render inside the browser
+  loading: () => (
+    <div className="flex min-h-full flex-1 flex-col items-center justify-center bg-zinc-950 p-6 text-zinc-500">
+      Loading Security Check...
+    </div>
+  ),
+})
 
 type Conn =
   | { kind: "idle" }
@@ -413,8 +422,12 @@ export default function Home() {
     }
   }, [sessionId, phase])
 
-  async function handleReady(lat: number, lng: number) {
-    const { id, lat: offsetLat, lng: offsetLng } = await join(lat, lng)
+  async function handleReady(lat: number, lng: number, turnstileToken: string) {
+    const {
+      id,
+      lat: offsetLat,
+      lng: offsetLng,
+    } = await join(lat, lng, turnstileToken)
     setMyLocation({ lat: offsetLat, lng: offsetLng })
     setSessionId(id)
     setPhase("live")

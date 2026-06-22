@@ -1,16 +1,24 @@
 "use client"
 
+import { Turnstile } from "@marsidev/react-turnstile"
 import { useState } from "react"
 
 export default function EntryGate({
   onReady,
 }: {
-  onReady: (lat: number, lng: number) => void
+  onReady: (lat: number, lng: number, turnstileToken: string) => void
 }) {
   const [status, setStatus] = useState<"idle" | "locating" | "error">("idle")
   const [error, setError] = useState<string>("")
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
 
   function enter() {
+    if (!turnstileToken) {
+      setStatus("error")
+      setError("Security verification incomplete. Please try again.")
+      return
+    }
+
     if (!("geolocation" in navigator)) {
       setStatus("error")
       setError("Your browser doesn't support location access.")
@@ -19,7 +27,8 @@ export default function EntryGate({
 
     setStatus("locating")
     navigator.geolocation.getCurrentPosition(
-      (pos) => onReady(pos.coords.latitude, pos.coords.longitude),
+      (pos) =>
+        onReady(pos.coords.latitude, pos.coords.longitude, turnstileToken),
       (err) => {
         setStatus("error")
         setError(
@@ -28,8 +37,6 @@ export default function EntryGate({
             : "Couldn't get your location. Please try again.",
         )
       },
-      // High accuracy + maximumAge:0 forces a fresh fix (Wi-Fi/GPS scan)
-      // instead of reusing the browser's cached IP-based location.
       { enableHighAccuracy: true, timeout: 15_000, maximumAge: 0 },
     )
   }
@@ -43,9 +50,23 @@ export default function EntryGate({
         </p>
       </div>
 
+      {/* Cloudflare turnstile challenge widget */}
+      <div className="my-2 text-zinc-950">
+        <Turnstile
+          siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!}
+          onSuccess={(token) => setTurnstileToken(token)}
+          onExpire={() => setTurnstileToken(null)}
+          onError={() => {
+            setStatus("error")
+            setError("Security check failed. Refresh the page.")
+          }}
+        />
+      </div>
+
       <button
         onClick={enter}
-        disabled={status === "locating"}
+        // wait for turnstile to finish
+        disabled={status === "locating" || !turnstileToken}
         className="rounded-full bg-emerald-400 px-8 py-3 font-semibold text-zinc-950 transition hover:bg-emerald-300 disabled:opacity-60"
       >
         {status === "locating" ? "Locating…" : "Enter Pulse"}
@@ -56,7 +77,7 @@ export default function EntryGate({
       )}
 
       <p className="max-w-sm text-center text-xs text-zinc-500">
-        No sign-up. Your dot is placed 1–3&nbsp;km from your real location.
+        No sign-up. Your dot is placed 2–5&nbsp;km from your real location.
         Nothing is stored — closing the tab ends everything.
       </p>
     </div>

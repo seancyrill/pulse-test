@@ -15,11 +15,12 @@ function authHeader(): HeadersInit {
 export async function join(
   lat: number,
   lng: number,
+  turnstileToken: string,
 ): Promise<{ id: string; lat: number; lng: number }> {
   const res = await fetch("/api/join", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ lat, lng }),
+    body: JSON.stringify({ lat, lng, turnstileToken }),
   })
   if (!res.ok) throw new Error(`join failed: ${res.status}`)
   const data = await res.json()
