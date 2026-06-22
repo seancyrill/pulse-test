@@ -12,7 +12,10 @@ function authHeader(): HeadersInit {
   return { Authorization: `Bearer ${sessionToken}` }
 }
 
-export async function join(lat: number, lng: number): Promise<string> {
+export async function join(
+  lat: number,
+  lng: number,
+): Promise<{ id: string; lat: number; lng: number }> {
   const res = await fetch("/api/join", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -21,7 +24,11 @@ export async function join(lat: number, lng: number): Promise<string> {
   if (!res.ok) throw new Error(`join failed: ${res.status}`)
   const data = await res.json()
   sessionToken = data.token
-  return data.id as string
+  return {
+    id: data.id as string,
+    lat: data.lat as number,
+    lng: data.lng as number,
+  }
 }
 
 export async function poll(): Promise<PollResponse> {

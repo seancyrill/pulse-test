@@ -414,8 +414,8 @@ export default function Home() {
   }, [sessionId, phase])
 
   async function handleReady(lat: number, lng: number) {
-    setMyLocation({ lat, lng })
-    const id = await join(lat, lng)
+    const { id, lat: offsetLat, lng: offsetLng } = await join(lat, lng)
+    setMyLocation({ lat: offsetLat, lng: offsetLng })
     setSessionId(id)
     setPhase("live")
   }

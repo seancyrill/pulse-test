@@ -36,5 +36,11 @@ export async function POST(request: NextRequest) {
     },
   })
 
-  return Response.json({ ok: true, id, token })
+  return Response.json({
+    ok: true,
+    id,
+    token,
+    lat: offset.lat,
+    lng: offset.lng,
+  })
 }

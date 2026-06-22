@@ -36,17 +36,11 @@
   - disconnection: when the chat/video disconnects for a certain amount of time, prevents killing a call on network blips.
   - video request: when A request for a video call, then B never chooses any option, A waits forever.
   - getUserMedia: not a timeout but it guards against asking for camera permission when video request is stale.
+- Users own pin was pinned on their exact location, and only apply offset on everyone else. I felt that on an anonymous app you would expect that other people see your exact location, which feels bad on a supposed to be strangers app. I changed it so it would use the offset pin on both the user end and everywhere else. I also looked up and saw that most cities are around 8-24km in diameter, so increased the offset radius into 2-5km, this widens the offset while keeping their pin inside their city most of the time.
 
 ### plans
 
-- bigger button for dots. is smol
-- shows request declined even if the recipient is busy
-- show peers who are busy
 - users can just spam call one guy even if they kept declining
-- on load, u have to scroll alot to see the dots
-- chat not closing when failed to connect
-- add some error messages on catch blocks
-- retry call when failed
 - maybe convert class contructors into contexts or functions instead, with proper type checkings
 - should idle chat participant be kicked, idk if this would be better
 - video cam settings on chat
