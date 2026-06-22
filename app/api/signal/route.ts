@@ -62,7 +62,8 @@ export async function POST(request: NextRequest) {
   if (
     signalType !== "request" &&
     signalType !== "accept" &&
-    signalType !== "decline"
+    signalType !== "decline" &&
+    signalType !== "end"
   ) {
     const related = await prisma.signal.findFirst({
       where: {

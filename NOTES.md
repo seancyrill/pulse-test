@@ -7,7 +7,7 @@
 - video call broken layoout, endvideo button being burried at the bottom, especially bad at landscape view. just fixed some styling issues
 - handleSignal flushing pending candidates BEFORE setting remote description, causing chat connections fail. fixed by reversing the sequence
 - When user A abandons chat/video (closing tab/browser), user B doesnt detect, it just sits there with the "Connected" message. Fixed by running a teardown() to end chat and video. Then send an end signal onConnectionState === failed || disconnected to enable them from taking chat/video after.
-- Video request cancel doesnt inform user B, when user A cancels or timeouts, then B accepts. Thus B going into chat with no one. Fixes by adding a new option for handle PeerControl - video-cancel - tells user B that user A cancelled.
+- Chat/Video request cancel doesnt inform user B, when user A cancels or timeouts, then B accepts. Thus B going into chat with no one. Fixes by adding a new option for handle PeerControl - video-cancel - tells user B that user A cancelled.
 
 ## Phase 2: Embellish
 
