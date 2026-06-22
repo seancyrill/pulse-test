@@ -40,10 +40,9 @@
 ### plans
 
 - bigger button for dots. is smol
-- make the poll clean up more efficient, running everytime anyone updates active status
-- users can just spam call one guy even if they kept declining
-- call offer doesnt expire
 - shows request declined even if the recipient is busy
+- show peers who are busy
+- users can just spam call one guy even if they kept declining
 - on load, u have to scroll alot to see the dots
 - chat not closing when failed to connect
 - add some error messages on catch blocks
@@ -55,3 +54,5 @@
 - should be able to bring out chat during video call
 - should clicking other dots during chat ask the user to leave chat and ask other stranger?
 - location error message improvement, maybe try saying their location/gps is off
+
+- make the poll clean up more efficient, running everytime anyone updates active status

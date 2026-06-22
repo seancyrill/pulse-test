@@ -319,7 +319,13 @@ export default function Home() {
         const c = connRef.current
         if (c.kind === "requesting" && c.peerId === sig.fromId) {
           if (requestTimer.current) clearTimeout(requestTimer.current)
-          teardown("Request declined.")
+          const message =
+            sig.payload === "busy"
+              ? "Stranger is busy."
+              : sig.payload === "offline"
+                ? "Stranger went offline."
+                : "Request declined."
+          teardown(message)
         }
         break
       }
