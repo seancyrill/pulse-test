@@ -13,7 +13,12 @@
 
 ## Phase 3: Security
 
-Every route trusts whatever **id** the client sends. Especially when id is displayed on url.
+1. As an anonymous application, it is easy to keep making id and tokens by just opening multiple tabs. Making the app vulnerable to bots that can abuse users.
+
+- Improved security by adding Cloudflare turnstile, cleanest way to block headless bot scripts, its invisible and analyzes browser telemetry to verify if the user is human.
+- Another layer of protection by adding an IP based rate limiter.
+
+2. Every route trusts whatever **id** the client sends. Especially when id is displayed on url.
 
 - This can be abused by:
   - **/api/signal** : anyone can send signals as that peer. accept connections, send **end** to kick someone, fake **offer/answer/ice** payloads into an active session
@@ -22,14 +27,9 @@ Every route trusts whatever **id** the client sends. Especially when id is displ
   - **/api/join** : anyone can overwrite another ids location or presense
 - These are fixed by replacing id with a server issued token, which is stored in memory, to verify identity.
 
-Signal types **offer/answer/ice/end** are are accepted in signal route whoever sends it.
+3. Signal types **offer/answer/ice/end** are are accepted in signal route whoever sends it.
 
 - This is fixed by having a relation check, these types of signal now only goes through if it came from the two parties who actually have an active connection.
-
-As an anonymous application, it is easy to keep making id and tokens by just opening multiple tabs. Making the app vulnerable to bots that can abuse users.
-
-- Improved security by adding Cloudflare turnstile, cleanest way to block headless bot scripts, its invisible and analyzes browser telemetry to verify if the user is human.
-- Another layer of protection by adding an IP based rate limiter.
 
 ## Phase 4: Improvements
 
@@ -41,17 +41,16 @@ As an anonymous application, it is easy to keep making id and tokens by just ope
   - disconnection: when the chat/video disconnects for a certain amount of time, prevents killing a call on network blips.
   - video request: when A request for a video call, then B never chooses any option, A waits forever.
   - getUserMedia: not a timeout but it guards against asking for camera permission when video request is stale.
+  - request decline: a progressive backoff everytime its declined. prevents invie spamming
 - Users own pin was on their exact location, and only applies the offset on everyone else. I felt that on an anonymous app you would expect that other people see your exact location also, which feels bad on a supposed to be strangers app. I changed it so it would use the offset pin on both the user end and everywhere else. I also looked up and saw that most cities are around 8-24km in diameter, so I increased the offset radius into 2-5km, this widens the offset while keeping their pin inside their city most of the time.
+- Added some missing types to make life easier.
+- Moved number of online position to top left.
 
 ### plans
 
-- users can just spam call one guy even if they kept declining
-- maybe convert class contructors into contexts or functions instead, with proper type checkings
-- should idle chat participant be kicked, idk if this would be better
 - video cam settings on chat
 - video crops it into portrait mode
 - should be able to bring out chat during video call
-- should clicking other dots during chat ask the user to leave chat and ask other stranger?
 - location error message improvement, maybe try saying their location/gps is off
 
 - make the poll clean up more efficient, running everytime anyone updates active status

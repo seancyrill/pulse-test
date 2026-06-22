@@ -12,7 +12,7 @@ import VideoPanel from "./components/VideoPanel"
 import WorldMap from "./components/WorldMap"
 
 const EntryGate = dynamic(() => import("./components/EntryGate"), {
-  ssr: false, // This forces the component to only render inside the browser
+  ssr: false,
   loading: () => (
     <div className="flex min-h-full flex-1 flex-col items-center justify-center bg-zinc-950 p-6 text-zinc-500">
       Loading Security Check...
@@ -30,6 +30,8 @@ type Conn =
 type VideoState = "none" | "requesting" | "incoming" | "active"
 
 const REQUEST_TIMEOUT_MS = 30_000
+
+const COOLDOWN_TIERS_MS = [3000, 10000, 30000]
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate")
@@ -63,6 +65,9 @@ export default function Home() {
     videoRef.current = v
     _setVideo(v)
   }
+
+  const [cooldowns, setCooldowns] = useState<Record<string, number>>({})
+  const declineCountsRef = useRef<Record<string, number>>({})
 
   const peerRef = useRef<PeerSession | null>(null)
   const msgId = useRef(0)
@@ -139,6 +144,9 @@ export default function Home() {
           clearTimeout(connectTimer.current)
           connectTimer.current = null
         }
+
+        delete declineCountsRef.current[peerId]
+
         setConn({ kind: "connected", peerId })
       },
     })
@@ -159,9 +167,6 @@ export default function Home() {
         if (videoRef.current === "requesting" && ps) {
           ps.startVideo()
             .then((stream) => {
-              // Same reasoning as acceptVideo: getUserMedia can hang on
-              // an unanswered permission prompt. Re-check state before
-              // acting, in case the call ended while we were waiting.
               if (videoRef.current !== "requesting") {
                 for (const track of stream.getTracks()) track.stop()
                 return
@@ -188,8 +193,6 @@ export default function Home() {
         }
         break
       case "video-cancel":
-        // The other side's video request timed out — they gave up
-        // waiting. We're the one on the "incoming" prompt; clear it.
         if (videoRef.current === "incoming") {
           setVideo("none")
           showNotice("Video request expired.")
@@ -206,6 +209,16 @@ export default function Home() {
 
   function requestConnection(peerId: string) {
     if (connRef.current.kind !== "idle") return
+
+    const expiry = cooldowns[peerId]
+    if (expiry && Date.now() < expiry) {
+      const secondsLeft = Math.ceil((expiry - Date.now()) / 1000)
+      showNotice(
+        `Please wait ${secondsLeft}s before requesting this stranger again.`,
+      )
+      return
+    }
+
     setConn({ kind: "requesting", peerId })
     void sendSignal(peerId, "request")
     requestTimer.current = setTimeout(() => {
@@ -328,6 +341,23 @@ export default function Home() {
         const c = connRef.current
         if (c.kind === "requesting" && c.peerId === sig.fromId) {
           if (requestTimer.current) clearTimeout(requestTimer.current)
+
+          if (sig.payload !== "busy" && sig.payload !== "offline") {
+            const currentStrikes = declineCountsRef.current[sig.fromId] || 0
+            const tierIndex = Math.min(
+              currentStrikes,
+              COOLDOWN_TIERS_MS.length - 1,
+            )
+            const nextDuration = COOLDOWN_TIERS_MS[tierIndex]
+
+            setCooldowns((curr) => ({
+              ...curr,
+              [sig.fromId]: Date.now() + nextDuration,
+            }))
+
+            declineCountsRef.current[sig.fromId] = currentStrikes + 1
+          }
+
           const message =
             sig.payload === "busy"
               ? "Stranger is busy."
@@ -394,7 +424,6 @@ export default function Home() {
         for (const s of data.signals) processSignalRef.current(s)
       } catch (err) {
         if (!active) return
-        // any failure to reach our own backend (network blip, server error, expired, session) would inform the user.
         consecutiveFailures += 1
 
         if (consecutiveFailures >= FAILURE_NOTICE_THRESHOLD) {
