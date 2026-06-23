@@ -33,6 +33,7 @@
 
 ## Phase 4: Improvements
 
+- Added video preview before going into a video call, also added toggles for mute and video.
 - Some empty catch blocks are better not silently swallowed
   - Failing the poll tick: Added some notice for the user to let the know when disconnect and reconnect
   - HandleSignal json parsing: added trycatch block to guard the parse
