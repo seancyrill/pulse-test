@@ -4,21 +4,13 @@ import { join, leave, poll, sendSignal } from "@/lib/api"
 import { POLL_INTERVAL_MS } from "@/lib/presence"
 import { type PeerDot, type SignalMsg } from "@/lib/types"
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc"
-import dynamic from "next/dynamic"
 import { useEffect, useRef, useState } from "react"
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel"
 import ConnectionPrompt from "./components/ConnectionPrompt"
+import EntryGate from "./components/EntryGate"
 import VideoPanel from "./components/VideoPanel"
+import VideoPreview from "./components/VideoPreview"
 import WorldMap from "./components/WorldMap"
-
-const EntryGate = dynamic(() => import("./components/EntryGate"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex min-h-full flex-1 flex-col items-center justify-center bg-zinc-950 p-6 text-zinc-500">
-      Loading Security Check...
-    </div>
-  ),
-})
 
 type Conn =
   | { kind: "idle" }
@@ -27,11 +19,9 @@ type Conn =
   | { kind: "connecting"; peerId: string }
   | { kind: "connected"; peerId: string }
 
-type VideoState = "none" | "requesting" | "incoming" | "active"
+type VideoState = "none" | "previewing" | "requesting" | "incoming" | "active"
 
 const REQUEST_TIMEOUT_MS = 30_000
-
-const COOLDOWN_TIERS_MS = [3000, 10000, 30000]
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate")
@@ -66,9 +56,6 @@ export default function Home() {
     _setVideo(v)
   }
 
-  const [cooldowns, setCooldowns] = useState<Record<string, number>>({})
-  const declineCountsRef = useRef<Record<string, number>>({})
-
   const peerRef = useRef<PeerSession | null>(null)
   const msgId = useRef(0)
   const requestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -81,6 +68,10 @@ export default function Home() {
 
   const videoRequestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const VIDEO_REQUEST_TIMEOUT_MS = 20_000
+  // Whether WE started this video request (true) or are responding to one
+  // (false). Decides what handleVideoReady does once preview finishes —
+  // send video-request vs video-accept.
+  const videoInitiator = useRef(false)
 
   function showNotice(text: string) {
     setNotice(text)
@@ -99,6 +90,7 @@ export default function Home() {
     connectTimer.current = null
     if (videoRequestTimer.current) clearTimeout(videoRequestTimer.current)
     videoRequestTimer.current = null
+    videoInitiator.current = false
     peerRef.current?.close()
     peerRef.current = null
     setLocalStream(null)
@@ -144,9 +136,6 @@ export default function Home() {
           clearTimeout(connectTimer.current)
           connectTimer.current = null
         }
-
-        delete declineCountsRef.current[peerId]
-
         setConn({ kind: "connected", peerId })
       },
     })
@@ -159,27 +148,30 @@ export default function Home() {
       case "video-request":
         if (videoRef.current === "none") setVideo("incoming")
         break
+      case "video-acknowledge":
+        // The other side accepted and is now previewing their camera —
+        // give them a fresh window instead of racing our original timer
+        // against however long they take to finish setup.
+        if (videoRef.current === "requesting") {
+          if (videoRequestTimer.current) clearTimeout(videoRequestTimer.current)
+          videoRequestTimer.current = setTimeout(() => {
+            videoRequestTimer.current = null
+            ps?.sendControl("video-cancel")
+            setVideo("none")
+            showNotice("No response.")
+          }, VIDEO_REQUEST_TIMEOUT_MS)
+        }
+        break
       case "video-accept":
+        // By this point OUR stream is already attached (we attached it
+        // the moment we hit Ready in our own preview, before sending
+        // video-request) — nothing left to grab here.
         if (videoRequestTimer.current) {
           clearTimeout(videoRequestTimer.current)
           videoRequestTimer.current = null
         }
-        if (videoRef.current === "requesting" && ps) {
-          ps.startVideo()
-            .then((stream) => {
-              if (videoRef.current !== "requesting") {
-                for (const track of stream.getTracks()) track.stop()
-                return
-              }
-              setLocalStream(stream)
-              setVideo("active")
-            })
-            .catch(() => {
-              if (videoRef.current !== "requesting") return
-              setVideo("none")
-              ps.sendControl("video-end")
-              showNotice("Camera unavailable.")
-            })
+        if (videoRef.current === "requesting") {
+          setVideo("active")
         }
         break
       case "video-decline":
@@ -193,32 +185,24 @@ export default function Home() {
         }
         break
       case "video-cancel":
-        if (videoRef.current === "incoming") {
+        // The other side gave up waiting — could be while we're still on
+        // the accept/decline prompt, or already previewing our own camera.
+        if (
+          videoRef.current === "incoming" ||
+          videoRef.current === "previewing"
+        ) {
           setVideo("none")
           showNotice("Video request expired.")
         }
         break
       case "video-end":
-        ps?.stopVideo()
-        setLocalStream(null)
-        setRemoteStream(null)
-        setVideo("none")
+        teardownVideo()
         break
     }
   }
 
   function requestConnection(peerId: string) {
     if (connRef.current.kind !== "idle") return
-
-    const expiry = cooldowns[peerId]
-    if (expiry && Date.now() < expiry) {
-      const secondsLeft = Math.ceil((expiry - Date.now()) / 1000)
-      showNotice(
-        `Please wait ${secondsLeft}s before requesting this stranger again.`,
-      )
-      return
-    }
-
     setConn({ kind: "requesting", peerId })
     void sendSignal(peerId, "request")
     requestTimer.current = setTimeout(() => {
@@ -268,35 +252,17 @@ export default function Home() {
 
   function startVideoRequest() {
     if (videoRef.current !== "none" || !peerRef.current) return
-    setVideo("requesting")
-    peerRef.current.sendControl("video-request")
-    videoRequestTimer.current = setTimeout(() => {
-      videoRequestTimer.current = null
-      peerRef.current?.sendControl("video-cancel")
-      setVideo("none")
-      showNotice("No response.")
-    }, VIDEO_REQUEST_TIMEOUT_MS)
+    videoInitiator.current = true
+    setVideo("previewing")
+    // No signal sent yet — the other side doesn't know about this until
+    // we finish previewing and hit Ready (handleVideoReady).
   }
 
-  function acceptVideo() {
-    const ps = peerRef.current
-    if (!ps) return
-    ps.startVideo()
-      .then((stream) => {
-        if (videoRef.current !== "incoming") {
-          for (const track of stream.getTracks()) track.stop()
-          return
-        }
-        setLocalStream(stream)
-        ps.sendControl("video-accept")
-        setVideo("active")
-      })
-      .catch(() => {
-        if (videoRef.current !== "incoming") return
-        ps.sendControl("video-decline")
-        setVideo("none")
-        showNotice("Camera unavailable.")
-      })
+  function acceptIncomingVideo() {
+    if (videoRef.current !== "incoming" || !peerRef.current) return
+    videoInitiator.current = false
+    peerRef.current.sendControl("video-acknowledge")
+    setVideo("previewing")
   }
 
   function declineVideo() {
@@ -304,13 +270,66 @@ export default function Home() {
     setVideo("none")
   }
 
-  function endVideo() {
+  // Called by VideoPreview's onReady once the user has previewed their
+  // camera/mic and tapped Ready. `stream` is the SAME MediaStream that's
+  // been live during preview — we attach it directly rather than asking
+  // for a new one, so what they previewed is exactly what gets sent.
+  function handleVideoReady(stream: MediaStream) {
     const ps = peerRef.current
-    ps?.stopVideo()
-    ps?.sendControl("video-end")
+    if (!ps) {
+      for (const track of stream.getTracks()) track.stop()
+      setVideo("none")
+      return
+    }
+    ps.attachStream(stream)
+    setLocalStream(stream)
+
+    if (videoInitiator.current) {
+      ps.sendControl("video-request")
+      setVideo("requesting")
+      videoRequestTimer.current = setTimeout(() => {
+        videoRequestTimer.current = null
+        ps.sendControl("video-cancel")
+        teardownVideo()
+        showNotice("No response.")
+      }, VIDEO_REQUEST_TIMEOUT_MS)
+    } else {
+      ps.sendControl("video-accept")
+      setVideo("active")
+    }
+  }
+
+  // Called by VideoPreview's onCancel — either side, while still in the
+  // previewing step (i.e. before video-request/video-accept actually
+  // went out). VideoPreview has already released its own camera/mic by
+  // the time this fires.
+  //
+  // Only the RESPONDER needs to tell the peer anything here: they already
+  // sent video-acknowledge when they hit Accept, so backing out now means
+  // sending video-decline to undo that. The INITIATOR hasn't told the
+  // peer anything yet at this point (video-request only goes out once
+  // Ready is pressed, in handleVideoReady) — so there's nothing to
+  // un-send, and sending video-decline anyway would be a stray signal
+  // with no real request behind it.
+  function cancelVideoPreview() {
+    if (!videoInitiator.current) {
+      peerRef.current?.sendControl("video-decline")
+    }
+    setVideo("none")
+  }
+
+  // Shared teardown for the local video pieces only — used when a video
+  // call ends or fails without ending the underlying chat connection.
+  function teardownVideo() {
+    peerRef.current?.stopVideo()
     setLocalStream(null)
     setRemoteStream(null)
     setVideo("none")
+  }
+
+  function endVideo() {
+    peerRef.current?.sendControl("video-end")
+    teardownVideo()
   }
 
   function processSignal(sig: SignalMsg) {
@@ -341,23 +360,9 @@ export default function Home() {
         const c = connRef.current
         if (c.kind === "requesting" && c.peerId === sig.fromId) {
           if (requestTimer.current) clearTimeout(requestTimer.current)
-
-          if (sig.payload !== "busy" && sig.payload !== "offline") {
-            const currentStrikes = declineCountsRef.current[sig.fromId] || 0
-            const tierIndex = Math.min(
-              currentStrikes,
-              COOLDOWN_TIERS_MS.length - 1,
-            )
-            const nextDuration = COOLDOWN_TIERS_MS[tierIndex]
-
-            setCooldowns((curr) => ({
-              ...curr,
-              [sig.fromId]: Date.now() + nextDuration,
-            }))
-
-            declineCountsRef.current[sig.fromId] = currentStrikes + 1
-          }
-
+          // payload carries the auto-decline reason ("busy" / "offline")
+          // when the server declined on the target's behalf — see
+          // sendDecline in /api/signal. No payload means a real decline.
           const message =
             sig.payload === "busy"
               ? "Stranger is busy."
@@ -424,6 +429,7 @@ export default function Home() {
         for (const s of data.signals) processSignalRef.current(s)
       } catch (err) {
         if (!active) return
+        // any failure to reach our own backend (network blip, server error, expired, session) would inform the user.
         consecutiveFailures += 1
 
         if (consecutiveFailures >= FAILURE_NOTICE_THRESHOLD) {
@@ -537,8 +543,15 @@ export default function Home() {
           subtitle="The stranger wants to turn on video."
           acceptLabel="Accept"
           declineLabel="Decline"
-          onAccept={acceptVideo}
+          onAccept={acceptIncomingVideo}
           onDecline={declineVideo}
+        />
+      )}
+
+      {video === "previewing" && (
+        <VideoPreview
+          onReady={handleVideoReady}
+          onCancel={cancelVideoPreview}
         />
       )}
 

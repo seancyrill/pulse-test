@@ -52,5 +52,6 @@
 - video crops it into portrait mode
 - should be able to bring out chat during video call
 - location error message improvement, maybe try saying their location/gps is off
+- preload map on entry gate so its ready when user clicks enter
 
 - make the poll clean up more efficient, running everytime anyone updates active status

@@ -1,6 +1,7 @@
 export type DescType = "offer" | "answer" | "ice"
 export type PeerControl =
   | "video-request"
+  | "video-acknowledge"
   | "video-accept"
   | "video-decline"
   | "video-cancel"
@@ -89,6 +90,17 @@ export class PeerSession {
   async handleSignal(type: DescType, payload: string) {
     if (this.closed) return
 
+    // IMPROVEMENT: guard the parse. `payload` is a string straight out of
+    // the Signal table — nothing upstream guarantees it's valid JSON (a
+    // malformed payload, intentional or not, used to throw a SyntaxError
+    // into an unhandled promise rejection here and silently wedge the
+    // connection with no visible error). Bail out loudly-but-safely on
+    // bad input instead.
+    //
+    // Typed as the union of what `type` can actually mean, rather than
+    // `unknown` + blind casts below — `type` already tells us which one
+    // we're holding, so the cast is narrowing within a known shape, not
+    // asserting into the dark.
     let data: RTCIceCandidateInit | RTCSessionDescriptionInit
     try {
       data = JSON.parse(payload) as
@@ -159,15 +171,26 @@ export class PeerSession {
 
   async startVideo(): Promise<MediaStream> {
     if (!this.localStream) {
-      this.localStream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
       })
-      for (const track of this.localStream.getTracks()) {
-        this.pc.addTrack(track, this.localStream)
-      }
+      this.attachStream(stream)
     }
-    return this.localStream
+    return this.localStream!
+  }
+
+  // Attach a stream that the caller already obtained (e.g. from a preview
+  // screen) instead of requesting a fresh one. Important: this must be the
+  // SAME stream the user previewed — re-requesting getUserMedia here would
+  // silently swap in a different camera/mic grab, breaking the "what you
+  // see in preview is what they get" guarantee.
+  attachStream(stream: MediaStream) {
+    if (this.localStream) return // already attached, don't double up
+    this.localStream = stream
+    for (const track of stream.getTracks()) {
+      this.pc.addTrack(track, stream)
+    }
   }
 
   stopVideo() {
